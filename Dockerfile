@@ -9,6 +9,9 @@ RUN wget -q https://github.com/pocketbase/pocketbase/releases/download/v${PB_VER
 # Las colecciones viven como migraciones versionadas: se aplican solas al
 # arrancar, asi el esquema se puede reconstruir desde cero en cualquier parte.
 COPY pb_migrations /pb/pb_migrations
+# Reglas que las de acceso no pueden cubrir: impedir que alguien se
+# registre como administrador, y hacer cumplir las transiciones de estado.
+COPY pb_hooks /pb/pb_hooks
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
