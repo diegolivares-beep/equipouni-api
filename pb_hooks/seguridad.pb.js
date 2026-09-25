@@ -111,3 +111,43 @@ onRecordCreateRequest(function (e) {
   }
   e.next();
 }, 'postulaciones');
+
+/* ============================================================
+   PUBLICACIÓN PROGRAMADA
+   ------------------------------------------------------------
+   Una oportunidad en estado "programada" sale al aire sola cuando
+   llega su fecha. Se revisa cada hora: para esto no hace falta más
+   precisión, y evita depender de que alguien entre al panel.
+   ============================================================ */
+
+cronAdd('publicar_programadas', '0 * * * *', function () {
+  var hoy = new Date().toISOString().slice(0, 10);
+  var listas = $app.findRecordsByFilter(
+    'oportunidades',
+    'estado = "programada" && fecha_publicacion != "" && fecha_publicacion <= {:hoy}',
+    '', 200, 0, { hoy: hoy }
+  );
+  listas.forEach(function (o) {
+    o.set('estado', 'publicada');
+    $app.save(o);
+    console.log('Publicada por programación: ' + o.get('nombre'));
+  });
+});
+
+/* Guardar una oportunidad como programada exige decir cuándo, y que
+   esa fecha no sea anterior al día de hoy: si no, nunca se publicaría. */
+function revisarProgramada(e) {
+  if (e.record.get('estado') === 'programada') {
+    var cuando = e.record.get('fecha_publicacion');
+    if (!cuando) {
+      throw new BadRequestError('Para programar una oportunidad hay que indicar la fecha de publicación.');
+    }
+    var cierre = e.record.get('cierre_postulacion');
+    if (cierre && cuando > cierre) {
+      throw new BadRequestError('La fecha de publicación es posterior al cierre de postulaciones.');
+    }
+  }
+  e.next();
+}
+onRecordCreateRequest(revisarProgramada, 'oportunidades');
+onRecordUpdateRequest(revisarProgramada, 'oportunidades');
