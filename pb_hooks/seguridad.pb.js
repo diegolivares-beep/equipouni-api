@@ -151,3 +151,30 @@ function revisarProgramada(e) {
 }
 onRecordCreateRequest(revisarProgramada, 'oportunidades');
 onRecordUpdateRequest(revisarProgramada, 'oportunidades');
+
+/* ============================================================
+   ACOTAR QUIÉN PUEDE LLAMAR A LA API
+   ------------------------------------------------------------
+   Por defecto cualquier sitio podría hacer peticiones desde el
+   navegador de una persona con sesión abierta. Se limita a los
+   dominios propios.
+   ============================================================ */
+
+var ORIGENES = [
+  'https://equipouni.cl',
+  'https://www.equipouni.cl',
+  'https://equipouni.estudiofaro.cl',
+  'http://localhost:8777'   // solo para desarrollo
+];
+
+routerUse(function (e) {
+  var origen = e.request.header.get('Origin');
+  if (origen && ORIGENES.indexOf(origen) !== -1) {
+    e.response.header().set('Access-Control-Allow-Origin', origen);
+    e.response.header().set('Access-Control-Allow-Credentials', 'true');
+    e.response.header().set('Vary', 'Origin');
+  }
+  e.response.header().set('X-Content-Type-Options', 'nosniff');
+  e.response.header().set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  e.next();
+});
