@@ -26,7 +26,7 @@ onRecordUpdateRequest(function (e) {
   var esSuperusuario = e.auth && e.auth.collection &&
                        e.auth.collection().name === '_superusers';
   if (!esSuperusuario) {
-    var original = e.app.findRecordById('users', e.record.id);
+    var original = $app.findRecordById('users', e.record.id);
     e.record.set('rol', original.get('rol'));
   }
   e.next();
@@ -42,7 +42,7 @@ onRecordUpdateRequest(function (e) {
                        e.auth.collection().name === '_superusers';
   if (esAdmin || esSuperusuario) { e.next(); return; }
 
-  var original = e.app.findRecordById('fichas', e.record.id);
+  var original = $app.findRecordById('fichas', e.record.id);
   var estadoAntes = original.get('estado');
 
   if (estadoAntes === 'validada' || estadoAntes === 'correccion') {
@@ -76,8 +76,21 @@ var TRANSICIONES = {
   renuncio:     []
 };
 
+/* Los campos JSON no llegan como arreglo: hay que interpretarlos antes
+   de usarlos. Sin esto, agregar un paso al historial reventaba y el
+   cambio de estado fallaba entero. */
+function comoLista(valor) {
+  if (!valor) return [];
+  if (Array.isArray(valor)) return valor;
+  try {
+    var texto = typeof valor === 'string' ? valor : String.fromCharCode.apply(null, valor);
+    var v = JSON.parse(texto);
+    return Array.isArray(v) ? v : [];
+  } catch (err) { return []; }
+}
+
 onRecordUpdateRequest(function (e) {
-  var original = e.app.findRecordById('postulaciones', e.record.id);
+  var original = $app.findRecordById('postulaciones', e.record.id);
   var antes = original.get('estado');
   var despues = e.record.get('estado');
 
@@ -87,7 +100,7 @@ onRecordUpdateRequest(function (e) {
       throw new BadRequestError('No se puede pasar de "' + antes + '" a "' + despues + '".');
     }
     var hoy = new Date().toISOString().slice(0, 10);
-    var historial = original.get('historial') || [];
+    var historial = comoLista(original.get('historial'));
     var paso = { fecha: hoy, a: despues };
     if (despues === 'renuncio') {
       paso.desde = antes;
@@ -103,7 +116,7 @@ onRecordUpdateRequest(function (e) {
       La regla de acceso ya exige que esté publicada; el plazo se revisa
       acá porque es una comparación de fechas. */
 onRecordCreateRequest(function (e) {
-  var oportunidad = e.app.findRecordById('oportunidades', e.record.get('oportunidad'));
+  var oportunidad = $app.findRecordById('oportunidades', e.record.get('oportunidad'));
   var cierre = oportunidad.get('cierre_postulacion');
   var hoy = new Date().toISOString().slice(0, 10);
   if (cierre && cierre < hoy) {
@@ -169,12 +182,19 @@ var ORIGENES = [
 
 routerUse(function (e) {
   var origen = e.request.header.get('Origin');
+  e.response.header().set('X-Content-Type-Options', 'nosniff');
+  e.response.header().set('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  /* PocketBase escribe su propio Allow-Origin "*" despues de este
+     middleware, asi que la nuestra se pone al volver, cuando la
+     respuesta ya paso por el suyo. */
+  e.next();
+
   if (origen && ORIGENES.indexOf(origen) !== -1) {
     e.response.header().set('Access-Control-Allow-Origin', origen);
     e.response.header().set('Access-Control-Allow-Credentials', 'true');
     e.response.header().set('Vary', 'Origin');
+  } else if (origen) {
+    e.response.header().del('Access-Control-Allow-Origin');
   }
-  e.response.header().set('X-Content-Type-Options', 'nosniff');
-  e.response.header().set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  e.next();
 });
