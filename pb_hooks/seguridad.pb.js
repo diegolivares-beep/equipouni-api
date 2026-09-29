@@ -235,37 +235,61 @@ onRecordCreateRequest(function (e) {
       Antes el número se escribía al crear la oportunidad y no lo tocaba
       nadie más: el sitio mostraba cupos que ya no existían. Ahora sale
       de contar las postulaciones que ocupan lugar, cada vez que una
-      cambia. */
-function recalcularCupos(idOportunidad) {
-  if (!idOportunidad) return;
-  try {
-    var o = $app.findRecordById('oportunidades', idOportunidad);
-    var cupos = o.get('cupos') || 0;
-    var ocupados = $app.findRecordsByFilter(
-      'postulaciones',
-      'oportunidad = {:o} && (estado = "seleccionado" || estado = "confirmado")',
-      '', 0, 0, { o: idOportunidad }
-    ).length;
-    var quedan = cupos - ocupados;
-    o.set('cupos_disponibles', quedan > 0 ? quedan : 0);
-    $app.save(o);
-  } catch (err) {
-    console.log('No se pudieron recalcular los cupos de ' + idOportunidad + ': ' + err);
-  }
-}
+      cambia.
+
+      OJO: la cuenta va repetida dentro de cada hook a propósito, y no
+      sacada a una función común. Sacarla afuera es exactamente lo que
+      advierte el encabezado de este archivo: el hook no la ve, lanza un
+      ReferenceError, y PocketBase lo devuelve como un 400 genérico
+      imposible de rastrear. Pasó de nuevo el 29-sep y dejó postular
+      completamente roto: repetir doce líneas es más barato que volver a
+      perder una hora buscando esto. */
 
 onRecordAfterCreateSuccess(function (e) {
-  recalcularCupos(e.record.get('oportunidad'));
+  try {
+    var id = e.record.get('oportunidad');
+    if (id) {
+      var o = $app.findRecordById('oportunidades', id);
+      var n = $app.findRecordsByFilter('postulaciones',
+        'oportunidad = {:o} && (estado = "seleccionado" || estado = "confirmado")',
+        '', 0, 0, { o: id }).length;
+      var q = (o.get('cupos') || 0) - n;
+      o.set('cupos_disponibles', q > 0 ? q : 0);
+      $app.save(o);
+    }
+  } catch (err) { console.log('cupos tras crear: ' + err); }
   e.next();
 }, 'postulaciones');
 
 onRecordAfterUpdateSuccess(function (e) {
-  recalcularCupos(e.record.get('oportunidad'));
+  try {
+    var id = e.record.get('oportunidad');
+    if (id) {
+      var o = $app.findRecordById('oportunidades', id);
+      var n = $app.findRecordsByFilter('postulaciones',
+        'oportunidad = {:o} && (estado = "seleccionado" || estado = "confirmado")',
+        '', 0, 0, { o: id }).length;
+      var q = (o.get('cupos') || 0) - n;
+      o.set('cupos_disponibles', q > 0 ? q : 0);
+      $app.save(o);
+    }
+  } catch (err) { console.log('cupos tras editar: ' + err); }
   e.next();
 }, 'postulaciones');
 
 onRecordAfterDeleteSuccess(function (e) {
-  recalcularCupos(e.record.get('oportunidad'));
+  try {
+    var id = e.record.get('oportunidad');
+    if (id) {
+      var o = $app.findRecordById('oportunidades', id);
+      var n = $app.findRecordsByFilter('postulaciones',
+        'oportunidad = {:o} && (estado = "seleccionado" || estado = "confirmado")',
+        '', 0, 0, { o: id }).length;
+      var q = (o.get('cupos') || 0) - n;
+      o.set('cupos_disponibles', q > 0 ? q : 0);
+      $app.save(o);
+    }
+  } catch (err) { console.log('cupos tras borrar: ' + err); }
   e.next();
 }, 'postulaciones');
 
