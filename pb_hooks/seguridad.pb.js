@@ -40,11 +40,20 @@ onRecordUpdateRequest(function (e) {
   e.next();
 }, 'users');
 
-/* 3. Una ficha nace SIEMPRE pendiente de revisión.
+/* 3. Una ficha nace SIEMPRE pendiente de revisión, y sin clasificar.
       Sin esto, quien se registra puede mandar estado = "validada" en la
       creación y postular sin que nadie lo revise: las reglas de acceso
       no miran campos y el hook de edición (el 4) no corre al crear.
-      Es el mismo agujero que el del rol, en otra colección. */
+      Es el mismo agujero que el del rol, en otra colección.
+
+      Desde el 30-sep la clasificación también es del equipo: el
+      emprendedor cuenta qué vende en cla_que_vende y el rubro, los
+      subrubros y las etiquetas los pone quien valida. Se limpian acá
+      por la misma razón que el estado: la regla de acceso no mira
+      campos, así que sin esto bastaría un POST desde la consola del
+      navegador para auto-clasificarse en el rubro que más le convenga
+      y aparecer en los filtros de una oportunidad que no le
+      corresponde. */
 onRecordCreateRequest(function (e) {
   var esAdmin = e.auth && e.auth.get && e.auth.get('rol') === 'admin';
   var esSuperusuario = e.auth && e.auth.collection &&
@@ -52,13 +61,20 @@ onRecordCreateRequest(function (e) {
   if (!esAdmin && !esSuperusuario) {
     e.record.set('estado', 'pendiente');
     e.record.set('observaciones', {});
+    e.record.set('cla_rubro', '');
+    e.record.set('cla_subrubros', []);
+    e.record.set('cla_tipos', []);
+    e.record.set('etiquetas', []);
+    /* De qué estado se avisó: nace sin avisar, y el hook de correos se
+       encarga cuando pase a validada o a corrección. */
+    e.record.set('aviso_estado', '');
   }
   e.next();
 }, 'fichas');
 
-/* 4. El estado de la ficha lo decide EquipoUni, no el emprendedor.
-      Él edita sus datos; al tocar una ficha ya revisada, vuelve a la
-      cola, que es lo que promete la especificación. */
+/* 4. El estado y la clasificación de la ficha los decide EquipoUni, no
+      el emprendedor. Él edita sus datos; al tocar una ficha ya revisada,
+      vuelve a la cola, que es lo que promete la especificación. */
 onRecordUpdateRequest(function (e) {
   var esAdmin = e.auth && e.auth.get && e.auth.get('rol') === 'admin';
   var esSuperusuario = e.auth && e.auth.collection &&
@@ -71,11 +87,23 @@ onRecordUpdateRequest(function (e) {
   if (estadoAntes === 'validada' || estadoAntes === 'correccion') {
     /* Cambió algo de una ficha ya revisada: vuelve a la cola. */
     e.record.set('estado', 'pendiente');
+    /* Y si vuelve a la cola, hay que poder avisarle de nuevo cuando se
+       resuelva: sin esto el aviso saldría una sola vez en la vida de la
+       ficha, porque aviso_estado seguiría marcando el estado anterior. */
+    e.record.set('aviso_estado', '');
   } else {
     e.record.set('estado', estadoAntes);
+    e.record.set('aviso_estado', original.get('aviso_estado'));
   }
   /* Las observaciones son del revisor: el emprendedor no las borra. */
   e.record.set('observaciones', original.get('observaciones'));
+  /* La clasificación tampoco es suya. Se repone desde el original en vez
+     de vaciarse, porque acá la ficha ya puede venir clasificada de una
+     revisión anterior y vaciarla la sacaría de todos los filtros. */
+  e.record.set('cla_rubro', original.get('cla_rubro'));
+  e.record.set('cla_subrubros', original.get('cla_subrubros'));
+  e.record.set('cla_tipos', original.get('cla_tipos'));
+  e.record.set('etiquetas', original.get('etiquetas'));
   e.next();
 }, 'fichas');
 
