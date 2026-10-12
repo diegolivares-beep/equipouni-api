@@ -140,6 +140,53 @@ onRecordCreateRequest(function (e) {
     a: 'postulado',
     por: quien
   }]);
+
+  /* COPIA DE LA FICHA, tal como estaba al postular.
+     Hasta el 12-oct la postulación guardaba solo una referencia a la
+     ficha, así que la productora recibía los datos que la ficha tiene
+     HOY: si el emprendedor la editaba después, cambiaba lo que ya se
+     había enviado y no quedaba rastro de lo que se evaluó.
+
+     Son exactamente los campos que viajan en la exportación
+     (exportar.js), y por la misma razón que allá, el RUT NO va: la
+     productora no lo necesita y al postular se le dijo al emprendedor
+     que no se comparte. Guardar menos copias de un dato sensible es
+     siempre la opción correcta.
+
+     No reemplaza a la ficha viva: la exportación sigue mostrando los
+     datos de hoy, que es lo que la productora debe ver. Esto es la
+     prueba de qué se mandó, para cuando alguien discuta. */
+  try {
+    var f = $app.findRecordById('fichas', e.record.get('ficha'));
+    var u = $app.findRecordById('users', f.get('usuario'));
+    e.record.set('ficha_copia', {
+      momento: new Date().toISOString(),
+      representante: f.get('representante_nombre') || '',
+      telefono: f.get('representante_telefono') || '',
+      correo: (u && u.get('email')) || '',
+      emprendimiento: f.get('emp_nombre') || '',
+      comuna: f.get('emp_comuna') || '',
+      instagram: f.get('emp_instagram') || '',
+      web: f.get('emp_web') || '',
+      que_vende: f.get('cla_que_vende') || '',
+      rubro: f.get('cla_rubro') || '',
+      subrubros: f.get('cla_subrubros') || [],
+      etiquetas: f.get('etiquetas') || [],
+      productos_top: f.get('productos_top') || [],
+      formalizacion: {
+        inicio_actividades: !!f.get('for_inicio_actividades'),
+        boleta: !!f.get('for_boleta'),
+        patente: !!f.get('for_patente'),
+        resolucion_sanitaria: !!f.get('for_resolucion_sanitaria'),
+        personalidad_juridica: !!f.get('for_personalidad_juridica')
+      }
+    });
+  } catch (err) {
+    /* Si la copia falla, la postulación se guarda igual: perder la
+       prueba es malo, impedirle postular por eso es peor. */
+    console.log('copia de la ficha al postular: ' + err);
+  }
+
   e.next();
 }, 'postulaciones');
 

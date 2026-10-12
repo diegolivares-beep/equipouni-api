@@ -1,16 +1,17 @@
 /// <reference path="../pb_data/types.d.ts" />
 
 /* ============================================================
-   LOS TRES CORREOS AUTOMÁTICOS
+   LOS CUATRO CORREOS AUTOMÁTICOS
    ------------------------------------------------------------
    Era el hueco más grande del service blueprint: el emprendedor
    mandaba su ficha y el sistema no le volvía a hablar nunca. Se
    enteraba solo si se le ocurría entrar al sitio a mirar. Ahora salen
-   tres avisos solos:
+   solos:
 
-     ficha_validada     quedó habilitado para postular
-     ficha_correccion   hay algo que arreglar, con la observación
-     seleccionado       quedó elegido, con los datos para pagar
+     ficha_validada         quedó habilitado para postular
+     ficha_correccion       hay algo que arreglar, con la observación
+     seleccionado           quedó elegido, con los datos para pagar
+     oportunidad_cancelada  el evento se suspendió (12-oct)
 
    TRES DECISIONES QUE CONVIENE ENTENDER ANTES DE TOCAR ESTO:
 
@@ -216,3 +217,106 @@ onRecordAfterUpdateSuccess(function (e) {
   }
   e.next();
 }, 'postulaciones');
+
+/* 3. La oportunidad se canceló: se le avisa a TODO el que tenga una
+      postulación viva en ella.
+
+      Este es el aviso que faltaba y que nos faltaba a nosotros: el
+      estado "cancelada" lo agregamos el 24-sep con el argumento de
+      "sigue visible para avisarle a quien postuló", y el aviso no
+      existía. Sin él la persona se enteraba llegando a la feria.
+
+      Dos cosas de este hook que NO hay que simplificar:
+
+      a) La postulación se vuelve a leer de la base justo antes de
+         mandar, y se revisa de nuevo su marca. Parece redundante y no
+         lo es: guardar una postulación dispara el hook 8 de
+         seguridad.pb.js, que recalcula los cupos y GUARDA la
+         oportunidad, lo que vuelve a entrar acá. Sin la relectura, esa
+         segunda pasada manda de nuevo los correos que esta pasada
+         todavía tiene en su lista y la persona recibe el aviso dos o
+         tres veces.
+
+      b) Solo se avisa a quien tiene algo que perder: postulado,
+         seleccionado o confirmado. A quien no quedó ya se le dijo que
+         no, y quien renunció se bajó solo. Mandarles un correo de algo
+         que ya no les afectaba sería ruido. */
+onRecordAfterUpdateSuccess(function (e) {
+  try {
+    if (e.record.get('estado') !== 'cancelada') { e.next(); return; }
+
+    var plantillas = $app.findRecordsByFilter(
+      'plantillas_correo', 'clave = "oportunidad_cancelada" && activa = true', '', 1, 0);
+    if (!plantillas.length) { e.next(); return; }
+    var pl = plantillas[0];
+
+    var pendientes = $app.findRecordsByFilter(
+      'postulaciones',
+      'oportunidad = {:o} && aviso_cancelacion = "" && ' +
+      '(estado = "postulado" || estado = "seleccionado" || estado = "confirmado")',
+      '', 0, 0, { o: e.record.id });
+    if (!pendientes.length) { e.next(); return; }
+
+    var motivo = e.record.get('motivo_cancelacion') || '';
+    var nombreOp = e.record.get('nombre') || 'la oportunidad';
+
+    for (var i = 0; i < pendientes.length; i++) {
+      try {
+        /* Relectura: ver (a) en el comentario de arriba. */
+        var p = $app.findRecordById('postulaciones', pendientes[i].id);
+        if (p.get('aviso_cancelacion')) continue;
+
+        var ficha = $app.findRecordById('fichas', p.get('ficha'));
+        var usuario = $app.findRecordById('users', ficha.get('usuario'));
+        var correo = usuario.get('email');
+        if (!correo) continue;
+
+        var datos = {
+          nombre: usuario.get('nombre') || ficha.get('representante_nombre') || '',
+          emprendimiento: ficha.get('emp_nombre') || 'tu emprendimiento',
+          sitio: 'https://equipouni.cl/oportunidades.html',
+          rubro: '',
+          observaciones: '',
+          oportunidad: nombreOp,
+          transferencia: '',
+          motivo: motivo ? 'Motivo: ' + motivo
+                         : 'No nos dejaron dicho el motivo. Si quieres saber más, respóndenos este correo.'
+        };
+
+        var cuerpo = String(pl.get('cuerpo') || '');
+        var asunto = String(pl.get('asunto') || '');
+        for (var m in datos) {
+          cuerpo = cuerpo.split('{' + m + '}').join(datos[m]);
+          asunto = asunto.split('{' + m + '}').join(datos[m]);
+        }
+        var html = '<p>' + cuerpo
+          .split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;')
+          .split('\n').join('<br>') + '</p>';
+
+        $app.newMailClient().send(new MailerMessage({
+          from: {
+            address: $app.settings().meta.senderAddress,
+            name: $app.settings().meta.senderName
+          },
+          to: [{ address: correo }],
+          subject: asunto,
+          text: cuerpo,
+          html: html
+        }));
+
+        /* Recién con el correo enviado, igual que los otros dos avisos:
+           si el envío falla, la marca no se escribe y el próximo
+           guardado de la oportunidad lo reintenta. */
+        p.set('aviso_cancelacion', new Date().toISOString().slice(0, 10));
+        $app.save(p);
+        console.log('Aviso de cancelación de "' + nombreOp + '" enviado a ' + correo);
+      } catch (errUno) {
+        /* Que un destinatario falle no puede dejar sin aviso a los demás. */
+        console.log('aviso de cancelación, un postulante: ' + errUno);
+      }
+    }
+  } catch (err) {
+    console.log('aviso de cancelación: ' + err);
+  }
+  e.next();
+}, 'oportunidades');
