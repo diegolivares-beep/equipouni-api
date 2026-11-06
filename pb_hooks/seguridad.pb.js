@@ -25,17 +25,29 @@ onRecordCreateRequest(function (e) {
        servidor y no el formulario: la casilla del navegador se puede
        saltar mandando la petición directo, la fecha del servidor no. */
     e.record.set('acepto_datos', new Date().toISOString().slice(0, 10));
+    /* Sin esto PocketBase le esconde el correo hasta al administrador,
+       y el panel no sabe a quién escribirle. La regla de users sigue
+       siendo "uno mismo o admin", así que no se le muestra a nadie más. */
+    e.record.set('emailVisibility', true);
   }
   e.next();
 }, 'users');
 
-/* 2. Tampoco puede ascenderse después editando su propia cuenta. */
+/* 2. Tampoco puede ascenderse después editando su propia cuenta, ni
+      tocar la prueba de su consentimiento.
+
+      acepto_datos se agregó al 6-nov: hasta ahí cualquiera podía
+      reescribir su propia fecha de aceptación (se comprobó poniéndole
+      2020-01-01 a una cuenta de prueba), y esa fecha es la única prueba
+      de que la persona aceptó el tratamiento de sus datos. */
 onRecordUpdateRequest(function (e) {
   var esSuperusuario = e.auth && e.auth.collection &&
                        e.auth.collection().name === '_superusers';
   if (!esSuperusuario) {
     var original = $app.findRecordById('users', e.record.id);
     e.record.set('rol', original.get('rol'));
+    e.record.set('acepto_datos', original.get('acepto_datos'));
+    e.record.set('emailVisibility', true);
   }
   e.next();
 }, 'users');
@@ -104,6 +116,13 @@ onRecordUpdateRequest(function (e) {
   e.record.set('cla_subrubros', original.get('cla_subrubros'));
   e.record.set('cla_tipos', original.get('cla_tipos'));
   e.record.set('etiquetas', original.get('etiquetas'));
+  /* La ficha tampoco cambia de dueño. La regla de edición compara contra
+     el dueño ACTUAL, no contra lo que se manda, así que hasta el 6-nov
+     el emprendedor podía pasarle su ficha a otra cuenta (comprobado con
+     dos cuentas de prueba): le plantaba a otra persona un RUT y unos
+     documentos que no eran suyos, y de paso se saltaba la guarda de cupo
+     tomado al cerrar su propia cuenta. */
+  e.record.set('usuario', original.get('usuario'));
   e.next();
 }, 'fichas');
 
@@ -134,6 +153,12 @@ onRecordCreateRequest(function (e) {
   e.record.set('estado', 'postulado');
   e.record.set('estado_anterior', '');
   e.record.set('fecha', hoy);
+  /* Las marcas de qué correo ya se mandó son del servidor. Si las pone
+     quien postula, deja falso el registro de avisos: puede nacer marcado
+     como "ya avisado" y no recibir nunca el correo de selección. */
+  e.record.set('aviso_estado', '');
+  e.record.set('aviso_cancelacion', '');
+  e.record.set('avisos_lote', {});
   e.record.set('historial', [{
     fecha: hoy,
     momento: new Date().toISOString(),
@@ -413,6 +438,28 @@ onRecordDeleteRequest(function (e) {
   }
   e.next();
 }, 'users');
+
+/* 10. Los datos bancarios y el responsable interno de una oportunidad
+       solo los ve el equipo.
+
+       PocketBase no tiene permisos por campo: si la regla deja ver la
+       oportunidad, entrega TODOS sus campos. Hasta el 6-nov cualquiera,
+       sin iniciar sesión, recibía por la API la cuenta bancaria donde se
+       paga la participación, aunque el código del sitio dijera que solo
+       la ve el seleccionado. Se comprobó contra producción.
+
+       El aviso de selección no se ve afectado: lee el registro por dentro
+       ($app.findRecordById), y esto solo recorta lo que sale por la API,
+       incluso cuando la oportunidad viaja expandida dentro de otra cosa. */
+onRecordEnrich(function (e) {
+  var auth = e.requestInfo && e.requestInfo.auth;
+  var esAdmin = auth && auth.get && auth.get('rol') === 'admin';
+  var esSuperusuario = auth && auth.collection && auth.collection().name === '_superusers';
+  if (!esAdmin && !esSuperusuario) {
+    e.record.hide('datos_transferencia', 'responsable');
+  }
+  e.next();
+}, 'oportunidades');
 
 /* ============================================================
    PUBLICACIÓN PROGRAMADA
