@@ -96,7 +96,28 @@ onRecordUpdateRequest(function (e) {
   var original = $app.findRecordById('fichas', e.record.id);
   var estadoAntes = original.get('estado');
 
-  if (estadoAntes === 'validada' || estadoAntes === 'correccion') {
+  /* Si lo único distinto es el teléfono, la ficha no vuelve a la cola
+     (decisión del 22-nov): un número nuevo no cambia quién es la
+     persona, y mandarla a revisión por eso le quitaba la posibilidad de
+     postular hasta que alguien la mirara. Se comparan todos los campos
+     menos los que este mismo hook repone desde el original. */
+  var NO_CUENTAN = {
+    id: 1, created: 1, updated: 1, estado: 1, observaciones: 1, cla_rubro: 1,
+    cla_subrubros: 1, cla_tipos: 1, etiquetas: 1, usuario: 1, aviso_estado: 1,
+    representante_telefono: 1
+  };
+  var soloTelefono = true;
+  var nombres = e.record.collection().fields.fieldNames();
+  for (var i = 0; i < nombres.length; i++) {
+    var n = nombres[i];
+    if (NO_CUENTAN[n]) continue;
+    if (JSON.stringify(e.record.get(n)) !== JSON.stringify(original.get(n))) {
+      soloTelefono = false;
+      break;
+    }
+  }
+
+  if ((estadoAntes === 'validada' || estadoAntes === 'correccion') && !soloTelefono) {
     /* Cambió algo de una ficha ya revisada: vuelve a la cola. */
     e.record.set('estado', 'pendiente');
     /* Y si vuelve a la cola, hay que poder avisarle de nuevo cuando se
